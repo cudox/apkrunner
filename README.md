@@ -3,8 +3,9 @@
 Run Android `.apk` files as native Linux applications — no container, no
 virtual machine, no emulator.
 
-> **Status: M0 (inspection).** `apkrunner inspect` works today. The runtime
-> backend that actually launches apps lands in M1; see [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: M1 in progress.** `apkrunner inspect` is complete and the runtime
+> backend (ATL) is wired; app launching works once the runtime is built. See
+> [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Why
 
@@ -49,7 +50,7 @@ Other commands:
 ```sh
 apkrunner list                  # installed apps (empty in M0)
 apkrunner remove <package>      # remove app + private data
-apkrunner run app.apk           # M1: runtime backend
+apkrunner run app.apk           # needs the M1 runtime (see below)
 apkrunner install app.apk       # M2: desktop integration
 ```
 
@@ -87,6 +88,21 @@ is tested end-to-end without committing APK fixtures.
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Runtime (M1)
+
+`run` uses [Android Translation Layer](https://gitlab.com/android_translation_layer/android_translation_layer)
+as its first backend: real ART compiled for glibc plus `android.*` on GTK4,
+without a container or an Android image.
+
+```sh
+./scripts/build-runtime.sh          # wolfSSL + bionic + ART + ATL (no root)
+export APKRUNNER_RUNTIME_PREFIX=$HOME/.local/apkrunner-runtime
+apkrunner run app.apk
+```
+
+The script installs everything under the prefix and never touches system
+directories. Building ART takes a while and needs ~3 GB of disk.
 
 ## Development
 
