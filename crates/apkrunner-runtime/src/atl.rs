@@ -63,12 +63,33 @@ impl AtlBackend {
         &self.prefix
     }
 
+    /// `PATH` with the runtime's bin directory first, so ATL can exec the
+    /// bundled tools (`dex2oat`, `dx`) it ships next to its own binary.
+    fn search_path(&self) -> Option<String> {
+        let bin = self.prefix.join("bin");
+        if !bin.is_dir() {
+            return None;
+        }
+        let mut paths = vec![bin];
+        if let Some(existing) = env::var_os("PATH") {
+            paths.extend(env::split_paths(&existing));
+        }
+        env::join_paths(paths)
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+    }
+
     fn library_path(&self) -> Option<String> {
         let lib = self.prefix.join("lib");
         if !lib.is_dir() {
             return None;
         }
         let mut paths = vec![lib];
+        // art_standalone installs libart.so and friends under lib/art.
+        let art = self.prefix.join("lib/art");
+        if art.is_dir() {
+            paths.push(art);
+        }
         if let Some(existing) = env::var_os("LD_LIBRARY_PATH") {
             paths.extend(env::split_paths(&existing));
         }
@@ -118,6 +139,9 @@ impl RuntimeBackend for AtlBackend {
 
         if let Some(library_path) = self.library_path() {
             env.push(("LD_LIBRARY_PATH".to_string(), library_path));
+        }
+        if let Some(path) = self.search_path() {
+            env.push(("PATH".to_string(), path));
         }
 
         // GTK/EGL on X11: force EGL, otherwise GTK may pick GLX and break
@@ -174,6 +198,7 @@ mod tests {
         let binary = dir.join("android-translation-layer");
         fs::write(&binary, b"#!/bin/sh\n").unwrap();
 
+        fs::create_dir_all(dir.join("bin")).unwrap();
         let backend = AtlBackend {
             binary: binary.clone(),
             prefix: dir.clone(),
@@ -204,6 +229,11 @@ mod tests {
         assert_eq!(
             env.get("APKRUNNER_PACKAGE").map(String::as_str),
             Some("com.example.hello")
+        );
+        assert!(
+            env.get("PATH")
+                .is_some_and(|path| path.starts_with(dir.join("bin").to_str().unwrap())),
+            "{env:?}"
         );
 
         fs::remove_dir_all(&dir).ok();
