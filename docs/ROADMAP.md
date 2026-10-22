@@ -11,7 +11,7 @@
 | Hito | Entrega | Duración | Estado |
 |---|---|---|---|
 | **M0** | Repo sano + CLI + `inspect` real | 1–2 semanas | ✅ hecho (2026-10-21) |
-| **M1** | Primer APK ejecutándose sin contenedor | 2–4 semanas | en curso |
+| **M1** | Primer APK ejecutándose sin contenedor | 2–4 semanas | funcional |
 | **M2** | Integración de escritorio + sandbox | 2–4 semanas | |
 | **M3** | Libs nativas x86_64 + GLES + audio | 4–8 semanas | |
 | **M4** | Cobertura: 10 apps objetivo + métricas | 6–10 semanas | |
@@ -100,7 +100,14 @@ Usar el motor de ATL (variante A de la arquitectura) para no reescribir ART ni l
 - [x] Capturar stderr del runtime en `~/.local/state/apkrunner/<pkg>.log`.
 - [x] `apkrunner run` elige la activity: `--activity` > manifest > error explicativo.
 - [x] `scripts/build-runtime.sh` reproducible (wolfSSL JNI + bionic + ART + ATL).
-- [ ] Verificar el criterio de aceptación con 3 apps reales.
+- [x] Verificar el criterio de aceptación con apps reales (2026-10-21):
+      `demo_app` (Java), `compose_demo_app` (Kotlin/Compose) y
+      `AdaptiveIconDemo` (Java) abren ventana y llegan a `onResume`
+      (`onWindowFocusChanged: true`). `AdaptiveIconDemo` arranca en 3.2 s.
+      `gles3jni` (GLES3 + JNI) también corre.
+- [ ] Confirmar input manual (click/teclado) en las apps de prueba.
+- [ ] `sample_sdl2_app` hace SIGSEGV dentro de `libandroidfw`
+      (`DiagMessage::Build`), pendiente de reportar/actualizar ATL.
 
 ### Criterio de aceptación
 

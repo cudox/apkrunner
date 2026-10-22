@@ -3,8 +3,9 @@
 Run Android `.apk` files as native Linux applications — no container, no
 virtual machine, no emulator.
 
-> **Status: M1 in progress.** `apkrunner inspect` is complete and the runtime
-> backend (ATL) is wired; app launching works once the runtime is built. See
+> **Status: M1 functional.** `apkrunner inspect` is complete and `apkrunner run`
+> launches real APKs through ATL (ART + GTK4, no container). Verified with
+> `demo_app`, `compose_demo_app`, `AdaptiveIconDemo` and `gles3jni`. See
 > [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Why
