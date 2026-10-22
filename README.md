@@ -87,3 +87,9 @@ is tested end-to-end without committing APK fixtures.
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Development
+
+`master` only receives merges from milestone branches (`feat/mN-*`). CI runs
+format, clippy, tests and a release build on every push. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the branch and commit conventions.
