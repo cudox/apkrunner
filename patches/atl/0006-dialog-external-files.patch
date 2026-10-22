@@ -1,0 +1,63 @@
+diff --git a/src/api-impl/android/app/Dialog.java b/src/api-impl/android/app/Dialog.java
+index 1f4c3c6..d9a3e12 100644
+--- a/src/api-impl/android/app/Dialog.java
++++ b/src/api-impl/android/app/Dialog.java
+@@ -31,6 +31,7 @@ public class Dialog implements Window.Callback, DialogInterface {
+ 
+ 	private Context context;
+ 	private Window window;
++	private LayoutInflater layoutInflater;
+ 	private OnDismissListener onDismissListener;
+ 	private OnShowListener onShowListener;
+ 
+@@ -58,8 +59,14 @@ public class Dialog implements Window.Callback, DialogInterface {
+ 		getWindow().setContentView(view);
+ 	}
+ 
++	public LayoutInflater getLayoutInflater() {
++		if (layoutInflater == null)
++			layoutInflater = LayoutInflater.from(context);
++		return layoutInflater;
++	}
++
+ 	public void setContentView(int layoutResId) {
+-		setContentView(LayoutInflater.from(context).inflate(layoutResId, null));
++		setContentView(getLayoutInflater().inflate(layoutResId, null));
+ 	}
+ 
+ 	public void setContentView(View view, ViewGroup.LayoutParams lp) {
+diff --git a/src/api-impl/android/content/Context.java b/src/api-impl/android/content/Context.java
+index f8f2b39..2d1a662 100644
+--- a/src/api-impl/android/content/Context.java
++++ b/src/api-impl/android/content/Context.java
+@@ -107,6 +107,7 @@ public abstract class Context {
+ 	File obb_dir = null;
+ 	File cache_dir = null;
+ 	File nobackup_dir = null;
++	File external_files_dir = null;
+ 
+ 	private static Map<IntentFilter, BroadcastReceiver> receiverMap = new ConcurrentHashMap<>();
+ 
+@@ -255,7 +256,21 @@ public abstract class Context {
+ 	}
+ 
+ 	public File getExternalFilesDir(String type) {
+-		return getFilesDir();
++		if (external_files_dir == null) {
++			external_files_dir = new File(getDataDirFile(), "external/files");
++		}
++		File dir = type == null ? external_files_dir : new File(external_files_dir, type);
++		if (!dir.exists()) {
++			if (!dir.mkdirs()) {
++				if (dir.exists()) {
++					// spurious failure; probably racing with another process for this app
++					return dir;
++				}
++				Slog.w(TAG, "Unable to create external files directory >" + dir.getPath() + "<");
++				return null;
++			}
++		}
++		return dir;
+ 	}
+ 
+ 	public File[] getExternalFilesDirs(String type) {

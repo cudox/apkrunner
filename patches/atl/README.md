@@ -11,6 +11,7 @@ applied, so rebuilds are idempotent.
 | `0003-web-settings-fonts.patch` | Adds the hidden `WebSettings.set*FontFamily` methods used by WebView-based apps. They are no-ops for now. |
 | `0004-webview-javascript-bridge.patch` | Implements `addJavascriptInterface`, `evaluateJavascript`, `javascript:` URLs and a WebKit `android-asset://` handler for local app assets. The injected bridge object is a `Proxy` that also answers `"method" in window.NativeInterface`, which is how JW Library checks for the bridge before calling it. |
 | `0005-path-arc-to.patch` | Replaces `Path.arcTo`'s use of `gsk_path_builder_svg_arc_to` with a parametric cubic-Bézier conversion. GSK can spin forever on full or degenerate arcs; JW Library's vector splash triggered exactly that and blocked the GTK main loop. |
+| `0006-dialog-external-files.patch` | Adds `Dialog.getLayoutInflater()`, used by JW Library's alert dialogs (the overflow menu crashed with `NoSuchMethodError`). Also stops `getExternalFilesDir()` from returning the private files directory: JW Library scanned its "external publications" folder, found `files/javet` there and deleted the Javet ICU data on every launch, so the next start failed with `FileNotFoundException: .../javet/icu/icudtl.dat`. |
 
 Check them against a new ATL revision with:
 
@@ -20,6 +21,7 @@ git -C /path/to/atl-src apply --check patches/atl/0002-android-gcm-iv.patch
 git -C /path/to/atl-src apply --check patches/atl/0003-web-settings-fonts.patch
 git -C /path/to/atl-src apply --check patches/atl/0004-webview-javascript-bridge.patch
 git -C /path/to/atl-src apply --check patches/atl/0005-path-arc-to.patch
+git -C /path/to/atl-src apply --check patches/atl/0006-dialog-external-files.patch
 ```
 
 The build script also re-dexes `core-oj` and `core-libart` with D8 after

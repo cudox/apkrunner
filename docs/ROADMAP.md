@@ -116,7 +116,11 @@ Usar el motor de ATL (variante A de la arquitectura) para no reescribir ART ni l
       navegación y las respuestas Java→JS con interacción real.
 - [x] Parches de compatibilidad de ATL en `patches/atl/`:
       `HttpResponseCache`, IV de 12 bytes en AES/GCM, métodos ocultos de
-      `WebSettings`, puente JavaScript del WebView y arcos de `Path` en Bézier.
+      `WebSettings`, puente JavaScript del WebView, arcos de `Path` en Bézier,
+      `Dialog.getLayoutInflater` y un directorio real para
+      `getExternalFilesDir`. Este último evitaba que el limpiador de
+      publicaciones huérfanas de JW Library borrase `files/javet` (los datos ICU
+      de Javet) en cada arranque.
       El build también re-dexea `core-oj`/`core-libart` con D8 porque `dx` deja
       las lambdas de libcore como `invokedynamic` y el `LambdaMetafactory` de
       ATL es un stub que devuelve `null`.
@@ -124,7 +128,14 @@ Usar el motor de ATL (variante A de la arquitectura) para no reescribir ART ni l
       Java a JS (`addJavascriptInterface`), ejecutar JS desde Java
       (`evaluateJavascript` y `javascript:`) y despachar los mensajes de vuelta
       al objeto Java. JW Library ya sale del splash y pinta su Home.
+- [x] Verificar que JW Library sobrevive a un segundo arranque: con
+      `getExternalFilesDir` apuntando fuera de `files/`, sus datos ICU
+      (`files/javet/icu/icudtl.dat`, 8.9 MB) ya no se borran y el Home se
+      mantiene estable.
 - [ ] Confirmar input manual (click/teclado) en las apps de prueba.
+- [ ] Verificar la navegación completa de JW Library (Bible, Library, Meetings,
+      Personal Study) y las respuestas Java→JS; el menú de la barra superior ya
+      no debería abortar con `NoSuchMethodError: Dialog.getLayoutInflater`.
 - [ ] `sample_sdl2_app` hace SIGSEGV dentro de `libandroidfw`
       (`DiagMessage::Build`), pendiente de reportar/actualizar ATL.
 
