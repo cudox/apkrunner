@@ -167,3 +167,71 @@ fn chunk(kind: u16, header_size: u16, body: &[u8]) -> Vec<u8> {
 fn index_of(strings: &[String], s: &str) -> u32 {
     strings.iter().position(|x| x == s).unwrap() as u32
 }
+
+/// Build a minimal but valid APK (manifest + one dex) for integration tests.
+///
+/// Enabled by the `test-fixtures` feature so other crates can exercise the
+/// CLI without committing a binary blob to the repository.
+#[cfg(feature = "test-fixtures")]
+pub fn minimal_apk() -> Vec<u8> {
+    use std::io::Write;
+
+    let manifest = with(
+        el(
+            "manifest",
+            vec![
+                ("package", AttrValue::Str("com.example.hello")),
+                ("versionCode", AttrValue::Int(1)),
+                ("versionName", AttrValue::Str("1.0")),
+            ],
+        ),
+        vec![
+            el("uses-sdk", vec![("minSdkVersion", AttrValue::Int(21))]),
+            with(
+                el(
+                    "application",
+                    vec![
+                        ("label", AttrValue::Str("Hello")),
+                        ("icon", AttrValue::Ref(0x7f02_0001)),
+                    ],
+                ),
+                vec![with(
+                    el(
+                        "activity",
+                        vec![
+                            ("name", AttrValue::Str(".MainActivity")),
+                            ("exported", AttrValue::Bool(true)),
+                        ],
+                    ),
+                    vec![with(
+                        el("intent-filter", vec![]),
+                        vec![
+                            el(
+                                "action",
+                                vec![("name", AttrValue::Str("android.intent.action.MAIN"))],
+                            ),
+                            el(
+                                "category",
+                                vec![("name", AttrValue::Str("android.intent.category.LAUNCHER"))],
+                            ),
+                        ],
+                    )],
+                )],
+            ),
+        ],
+    );
+
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut buffer);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+
+        zip.start_file("AndroidManifest.xml", options).unwrap();
+        zip.write_all(&encode(&manifest)).unwrap();
+        zip.start_file("classes.dex", options).unwrap();
+        zip.write_all(&[0u8; 128]).unwrap();
+        zip.finish().unwrap();
+    }
+    buffer.into_inner()
+}

@@ -14,3 +14,6 @@ apkrunner-core.workspace = true
 apkrunner-runtime.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+apkrunner-apk = { workspace = true, features = ["test-fixtures"] }

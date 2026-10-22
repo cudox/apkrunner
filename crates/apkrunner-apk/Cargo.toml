@@ -7,3 +7,7 @@ license.workspace = true
 [dependencies]
 zip.workspace = true
 serde.workspace = true
+
+[features]
+# Exposes fixtures::minimal_apk() to other crates' tests.
+test-fixtures = []

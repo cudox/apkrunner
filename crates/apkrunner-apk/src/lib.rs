@@ -4,8 +4,8 @@
 pub mod axml;
 pub mod error;
 pub mod extract;
-#[cfg(test)]
-mod fixtures;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures;
 pub mod inspect;
 pub mod model;
 

@@ -89,3 +89,38 @@ fn remove_refuses_invalid_package() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn run_launches_the_manifest_activity_and_propagates_the_exit_code() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("run-ok");
+    let apk = dir.join("hello.apk");
+    fs::write(&apk, apkrunner_apk::fixtures::minimal_apk()).unwrap();
+
+    let fake = dir.join("fake-atl");
+    fs::write(&fake, "#!/bin/sh\nexit 7\n").unwrap();
+    let mut perms = fs::metadata(&fake).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&fake, perms).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apkrunner"))
+        .args(["run", apk.to_str().unwrap()])
+        .env("APKRUNNER_DATA_DIR", &dir)
+        .env("APKRUNNER_STATE_DIR", dir.join("state"))
+        .env("APKRUNNER_ATL_BIN", &fake)
+        .env("APKRUNNER_RUNTIME_PREFIX", dir.join("runtime"))
+        .output()
+        .expect("binary runs");
+
+    assert_eq!(output.status.code(), Some(7));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("launching com.example.hello (com.example.hello.MainActivity)"),
+        "{stderr}"
+    );
+    assert!(dir.join("runtime/atl/com.example.hello").is_dir());
+    assert!(dir.join("state/com.example.hello.log").is_file());
+
+    fs::remove_dir_all(&dir).ok();
+}
