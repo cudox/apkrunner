@@ -1,0 +1,193 @@
+diff --git a/src/api-impl/android/atl/AtlGcmCipher.java b/src/api-impl/android/atl/AtlGcmCipher.java
+new file mode 100644
+index 0000000..333ae45
+--- /dev/null
++++ b/src/api-impl/android/atl/AtlGcmCipher.java
+@@ -0,0 +1,127 @@
++package android.atl;
++
++import java.security.AlgorithmParameters;
++import java.security.InvalidAlgorithmParameterException;
++import java.security.InvalidKeyException;
++import java.security.Key;
++import java.security.NoSuchAlgorithmException;
++import java.security.NoSuchProviderException;
++import java.security.SecureRandom;
++import java.security.spec.AlgorithmParameterSpec;
++import javax.crypto.BadPaddingException;
++import javax.crypto.Cipher;
++import javax.crypto.CipherSpi;
++import javax.crypto.IllegalBlockSizeException;
++import javax.crypto.NoSuchPaddingException;
++import javax.crypto.ShortBufferException;
++import javax.crypto.spec.GCMParameterSpec;
++
++/**
++ * AES/GCM implementation that matches Android's IV length.
++ *
++ * BouncyCastle picks a 16-byte IV when a Cipher is initialized without an
++ * explicit GCMParameterSpec. Android's keystore always uses 12 bytes, and
++ * libraries such as Tink rely on that: they copy the first 12 bytes returned
++ * by Cipher.getIV() and later decrypt with a 12 byte GCMParameterSpec. With a
++ * 16-byte IV the stored prefix is truncated and every decryption fails with
++ * AEADBadTagException.
++ */
++public final class AtlGcmCipher extends CipherSpi {
++    private static final int IV_LENGTH = 12;
++    private static final int TAG_BITS = 128;
++
++    private final Cipher delegate;
++
++    public AtlGcmCipher() throws NoSuchAlgorithmException, NoSuchPaddingException, NoSuchProviderException {
++        delegate = Cipher.getInstance("AES/GCM/NoPadding", "BC");
++    }
++
++    @Override
++    protected void engineSetMode(String mode) {
++    }
++
++    @Override
++    protected void engineSetPadding(String padding) {
++    }
++
++    @Override
++    protected int engineGetBlockSize() {
++        return delegate.getBlockSize();
++    }
++
++    @Override
++    protected int engineGetOutputSize(int inputLen) {
++        return delegate.getOutputSize(inputLen);
++    }
++
++    @Override
++    protected byte[] engineGetIV() {
++        return delegate.getIV();
++    }
++
++    @Override
++    protected AlgorithmParameters engineGetParameters() {
++        return delegate.getParameters();
++    }
++
++    @Override
++    protected void engineInit(int opmode, Key key, SecureRandom random) throws InvalidKeyException {
++        if (opmode == Cipher.ENCRYPT_MODE) {
++            SecureRandom source = random != null ? random : new SecureRandom();
++            byte[] iv = new byte[IV_LENGTH];
++            source.nextBytes(iv);
++            try {
++                delegate.init(opmode, key, new GCMParameterSpec(TAG_BITS, iv), random);
++            } catch (InvalidAlgorithmParameterException e) {
++                throw new InvalidKeyException(e);
++            }
++        } else {
++            delegate.init(opmode, key, random);
++        }
++    }
++
++    @Override
++    protected void engineInit(int opmode, Key key, AlgorithmParameterSpec params, SecureRandom random)
++            throws InvalidKeyException, InvalidAlgorithmParameterException {
++        delegate.init(opmode, key, params, random);
++    }
++
++    @Override
++    protected void engineInit(int opmode, Key key, AlgorithmParameters params, SecureRandom random)
++            throws InvalidKeyException, InvalidAlgorithmParameterException {
++        delegate.init(opmode, key, params, random);
++    }
++
++    @Override
++    protected byte[] engineUpdate(byte[] input, int inputOffset, int inputLen) {
++        return delegate.update(input, inputOffset, inputLen);
++    }
++
++    @Override
++    protected int engineUpdate(byte[] input, int inputOffset, int inputLen, byte[] output, int outputOffset)
++            throws ShortBufferException {
++        return delegate.update(input, inputOffset, inputLen, output, outputOffset);
++    }
++
++    @Override
++    protected byte[] engineDoFinal(byte[] input, int inputOffset, int inputLen)
++            throws IllegalBlockSizeException, BadPaddingException {
++        return delegate.doFinal(input, inputOffset, inputLen);
++    }
++
++    @Override
++    protected int engineDoFinal(byte[] input, int inputOffset, int inputLen, byte[] output, int outputOffset)
++            throws ShortBufferException, IllegalBlockSizeException, BadPaddingException {
++        return delegate.doFinal(input, inputOffset, inputLen, output, outputOffset);
++    }
++
++    @Override
++    protected void engineUpdateAAD(byte[] src, int offset, int len) {
++        delegate.updateAAD(src, offset, len);
++    }
++
++    @Override
++    protected void engineUpdateAAD(java.nio.ByteBuffer src) {
++        delegate.updateAAD(src);
++    }
++}
+diff --git a/src/api-impl/android/atl/AtlGcmProvider.java b/src/api-impl/android/atl/AtlGcmProvider.java
+new file mode 100644
+index 0000000..db0a1c2
+--- /dev/null
++++ b/src/api-impl/android/atl/AtlGcmProvider.java
+@@ -0,0 +1,22 @@
++package android.atl;
++
++import java.security.Provider;
++
++/**
++ * Installs Android-compatible AES/GCM behavior for apps that use the
++ * AndroidKeyStore (see {@link AtlGcmCipher}).
++ */
++public final class AtlGcmProvider extends Provider {
++    public static final String NAME = "ATL-GCM";
++
++    public AtlGcmProvider() {
++        super(NAME, 1.0, "apkrunner AndroidKeyStore AES/GCM compatibility provider");
++        put("Cipher.AES/GCM/NoPadding", "android.atl.AtlGcmCipher");
++    }
++
++    public static synchronized void install() {
++        if (java.security.Security.getProvider(NAME) == null) {
++            java.security.Security.insertProviderAt(new AtlGcmProvider(), 1);
++        }
++    }
++}
+diff --git a/src/api-impl/android/security/keystore/AndroidKeyStore.java b/src/api-impl/android/security/keystore/AndroidKeyStore.java
+index 0243d69..b065061 100644
+--- a/src/api-impl/android/security/keystore/AndroidKeyStore.java
++++ b/src/api-impl/android/security/keystore/AndroidKeyStore.java
+@@ -24,6 +24,14 @@ public class AndroidKeyStore extends KeyStoreSpi {
+ 
+ 	private final static String TAG = "AndroidKeyStore";
+ 
++	static {
++		try {
++			android.atl.AtlGcmProvider.install();
++		} catch (Throwable t) {
++			Slog.w(TAG, "could not install AES/GCM compatibility provider: " + t);
++		}
++	}
++
+ 	private static native void nativeSetKey(String package_name, String alias, byte[] encoded);
+ 	private static native byte[] nativeGetKey(String package_name, String alias);
+ 
+diff --git a/src/api-impl/meson.build b/src/api-impl/meson.build
+index cd53b99..2742395 100644
+--- a/src/api-impl/meson.build
++++ b/src/api-impl/meson.build
+@@ -87,6 +87,8 @@ srcs = [
+ 	'android/appwidget/AppWidgetManager.java',
+ 	'android/appwidget/AppWidgetProvider.java',
+ 	'android/atl/ATLGStub.java',
++	'android/atl/AtlGcmCipher.java',
++	'android/atl/AtlGcmProvider.java',
+ 	'android/atl/ATLKeyboardDialog.java',
+ 	'android/atl/ATLKeyboardViewer.java',
+ 	'android/atl/ATLLoadedApp.java',

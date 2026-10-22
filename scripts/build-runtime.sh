@@ -39,6 +39,9 @@ need javac
 need pkg-config
 need curl
 need autoreconf
+need java
+need zip
+need sha256sum
 
 export PKG_CONFIG_PATH="$PREFIX/share/pkgconfig:$PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export LIBRARY_PATH="$PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
@@ -175,6 +178,44 @@ if has art; then
     cd art_standalone
     make -j"$JOBS" ____PREFIX="$PREFIX" ____LIBDIR=lib
     make ____PREFIX="$PREFIX" ____LIBDIR=lib install
+
+    # libcore is compiled with dx, which does not desugar Java 8 lambdas. The
+    # runtime only ships the compile-time LambdaMetafactory stub, which returns
+    # null, so java.time and friends die with "Bootstrap method returned null".
+    # Re-dex the two boot jars that contain invokedynamic with D8. min-api 25
+    # forces lambda desugaring; 26 would keep invokedynamic.
+    R8_VERSION=9.5.28
+    R8_SHA256=38a9ffaaebbd17d1514e3ecbff5a85b989bb13c551b9e224c7409514eea84ff5
+    R8_JAR="$BUILD_DIR/r8-$R8_VERSION.jar"
+    if [ ! -f "$R8_JAR" ]; then
+        curl -fsSL -o "$R8_JAR" \
+            "https://dl.google.com/dl/android/maven2/com/android/tools/r8/$R8_VERSION/r8-$R8_VERSION.jar" \
+            || die "cannot download R8 $R8_VERSION"
+    fi
+    echo "$R8_SHA256  $R8_JAR" | sha256sum -c - >/dev/null \
+        || die "R8 checksum mismatch"
+
+    desugar_boot_jar() {
+        local name=$1
+        local classes="out/host/common/obj/JAVA_LIBRARIES/${name}-hostdex_intermediates/classes.jar"
+        local out="out/desugared-${name}"
+        [ -f "$classes" ] || die "missing $classes"
+        rm -rf "$out"
+        mkdir -p "$out"
+        log "desugaring $name with D8"
+        "$JAVA_HOME/bin/java" -Xmx4g -cp "$R8_JAR" com.android.tools.r8.D8 \
+            --min-api 25 --lib "$JAVA_HOME" --output "$out" "$classes" >/dev/null \
+            || die "D8 failed for $name"
+        ( cd "$out" && zip -q "$PREFIX/lib/java/dex/art/${name}-hostdex.jar" classes.dex ) \
+            || die "cannot update ${name}-hostdex.jar"
+    }
+
+    desugar_boot_jar core-oj
+    desugar_boot_jar core-libart
+
+    # Drop generated images and dex caches so the new jars are used.
+    rm -rf "$PREFIX/lib/java/dex/art/oat"
+    rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/art/x86_64"
 fi
 
 if has atl; then

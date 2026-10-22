@@ -1,0 +1,17 @@
+diff --git a/src/api-impl/android/webkit/WebSettings.java b/src/api-impl/android/webkit/WebSettings.java
+index 395b2c0..5ea2430 100644
+--- a/src/api-impl/android/webkit/WebSettings.java
++++ b/src/api-impl/android/webkit/WebSettings.java
+@@ -82,4 +82,12 @@ public class WebSettings {
+ 	public void setAllowContentAccess(boolean allow) {}
+ 
+ 	public void setAllowFileAccessFromFileURLs(boolean allow) {}
++
++	// Hidden Android APIs used by WebView-based apps to select font families.
++	public void setStandardFontFamily(String font) {}
++	public void setSerifFontFamily(String font) {}
++	public void setSansSerifFontFamily(String font) {}
++	public void setCursiveFontFamily(String font) {}
++	public void setFantasyFontFamily(String font) {}
++	public void setFixedFontFamily(String font) {}
+ }

@@ -105,6 +105,21 @@ Usar el motor de ATL (variante A de la arquitectura) para no reescribir ART ni l
       `AdaptiveIconDemo` (Java) abren ventana y llegan a `onResume`
       (`onWindowFocusChanged: true`). `AdaptiveIconDemo` arranca en 3.2 s.
       `gles3jni` (GLES3 + JNI) también corre.
+- [x] Prueba con APK real (JW Library 15.9.2, 2026-10-21): la app arranca,
+      extrae sus 28 librerías nativas (Realm, SQLite, sodium, JNI propios),
+      ejecuta `MainActivity` y `SiloContainer`, muestra el splash y se mantiene
+      viva sin crashes. Queda bloqueada en el puente JavaScript del WebView:
+      la webapp llama a `NativeInterface.send(...)` y espera respuestas, pero
+      ATL no implementa `addJavascriptInterface`, `evaluateJavascript` ni
+      `loadUrl("javascript:...")`.
+- [x] Parches de compatibilidad de ATL en `patches/atl/`:
+      `HttpResponseCache`, IV de 12 bytes en AES/GCM y métodos ocultos de
+      `WebSettings`. El build también re-dexea `core-oj`/`core-libart` con D8
+      porque `dx` deja las lambdas de libcore como `invokedynamic` y el
+      `LambdaMetafactory` de ATL es un stub que devuelve `null`.
+- [ ] Implementar el puente JavaScript del WebView en ATL (o en un fork
+      propio): exponer objetos Java a JS y ejecutar JS desde Java. Es lo que
+      falta para que JW Library salga del splash.
 - [ ] Confirmar input manual (click/teclado) en las apps de prueba.
 - [ ] `sample_sdl2_app` hace SIGSEGV dentro de `libandroidfw`
       (`DiagMessage::Build`), pendiente de reportar/actualizar ATL.
