@@ -70,14 +70,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "apkrunner"
+name = "apkrunner-apk"
 version = "0.1.0"
 dependencies = [
- "byteorder",
- "clap",
  "serde",
- "serde_json",
  "zip",
+]
+
+[[package]]
+name = "apkrunner-cli"
+version = "0.1.0"
+dependencies = [
+ "apkrunner-apk",
+ "apkrunner-core",
+ "clap",
+ "serde_json",
+]
+
+[[package]]
+name = "apkrunner-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

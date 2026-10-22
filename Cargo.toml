@@ -1,19 +1,20 @@
-# Cargo.tomluse std::fs;
+[workspace]
+resolver = "2"
+members = ["crates/*"]
 
-[package]
-name = "apkrunner"
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-id="c1dex"
+license = "GPL-3.0-or-later"
 
-[dependencies]
-
+[workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
-
 zip = "2"
-
 serde = { version = "1", features = ["derive"] }
-
 serde_json = "1"
+apkrunner-apk = { path = "crates/apkrunner-apk" }
+apkrunner-core = { path = "crates/apkrunner-core" }
 
-byteorder = "1.5"
+[profile.release]
+lto = "thin"
+strip = true

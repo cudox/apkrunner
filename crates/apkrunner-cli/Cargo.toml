@@ -1,0 +1,15 @@
+[package]
+name = "apkrunner-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "apkrunner"
+path = "src/main.rs"
+
+[dependencies]
+apkrunner-apk.workspace = true
+apkrunner-core.workspace = true
+clap.workspace = true
+serde_json.workspace = true
