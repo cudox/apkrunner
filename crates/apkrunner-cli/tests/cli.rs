@@ -55,7 +55,7 @@ fn inspect_missing_file_fails_cleanly() {
 }
 
 #[test]
-fn run_reports_m1_stub() {
+fn run_rejects_an_invalid_apk() {
     let dir = temp_dir("run");
     let apk = dir.join("fake.apk");
     fs::write(&apk, b"not really an apk").unwrap();
@@ -70,10 +70,10 @@ fn run_reports_m1_stub() {
         &dir,
     );
 
-    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("M1"), "{stderr}");
-    assert!(stderr.contains("com.example.Main"), "{stderr}");
+    assert!(stderr.starts_with("apkrunner: "), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
 
     fs::remove_dir_all(&dir).ok();
 }

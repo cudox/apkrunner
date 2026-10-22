@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use apkrunner_apk::{inspect_apk, ApkInfo};
-use apkrunner_core::{installed, paths};
+use apkrunner_core::backend::LaunchRequest;
+use apkrunner_core::{installed, paths, RuntimeBackend};
+use apkrunner_runtime::AtlBackend;
 use clap::{Parser, Subcommand};
 
 /// Exit code used for "this milestone does not implement it yet".
@@ -49,6 +51,9 @@ enum Command {
         /// Initial window height in pixels.
         #[arg(long)]
         height: Option<u32>,
+        /// Extra arguments passed to the runtime after `--`.
+        #[arg(last = true)]
+        extra: Vec<String>,
     },
 
     /// Install an APK so it appears in the application menu (M2).
@@ -96,21 +101,43 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             activity,
             width,
             height,
+            extra,
         } => {
-            ensure_file(&apk)?;
-            let details = activity.as_deref().unwrap_or("(from manifest)");
-            let size = match (width, height) {
-                (Some(w), Some(h)) => format!("{w}x{h}"),
-                _ => "default".to_string(),
+            let info = inspect_apk(&apk).map_err(|e| e.to_string())?;
+
+            let activity = activity
+                .or_else(|| info.launchable_activity.clone())
+                .ok_or_else(|| {
+                    format!(
+                        "{} has no launcher activity; pass --activity <class>",
+                        info.package
+                    )
+                })?;
+
+            let backend = AtlBackend::discover().map_err(|e| e.to_string())?;
+            paths::ensure_layout().map_err(|e| e.to_string())?;
+
+            let data_dir = paths::data_dir().join("runtime/atl").join(&info.package);
+            std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+            let log_path = paths::log_path(&info.package);
+
+            eprintln!("apkrunner: launching {} ({activity})", info.package);
+            eprintln!("runtime:   {}", backend.name());
+            eprintln!("log:       {}", log_path.display());
+
+            let request = LaunchRequest {
+                apk,
+                package: info.package,
+                activity,
+                data_dir,
+                width,
+                height,
+                extra_args: extra,
             };
-            eprintln!(
-                "apkrunner: the runtime backend is not implemented yet (roadmap M1).\n\
-                 would run: {}\n\
-                 activity:  {details}\n\
-                 window:    {size}",
-                apk.display()
-            );
-            Ok(ExitCode::from(EXIT_NOT_IMPLEMENTED))
+
+            let code =
+                apkrunner_runtime::run(&backend, &request, &log_path).map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(code.clamp(0, 255) as u8))
         }
 
         Command::Install { apk } => {

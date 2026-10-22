@@ -83,6 +83,7 @@ version = "0.1.0"
 dependencies = [
  "apkrunner-apk",
  "apkrunner-core",
+ "apkrunner-runtime",
  "clap",
  "serde_json",
 ]
@@ -92,6 +93,13 @@ name = "apkrunner-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "apkrunner-runtime"
+version = "0.1.0"
+dependencies = [
+ "apkrunner-core",
 ]
 
 [[package]]
