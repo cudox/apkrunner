@@ -1,0 +1,374 @@
+diff --git a/src/api-impl-jni/widgets/android_webkit_WebView.c b/src/api-impl-jni/widgets/android_webkit_WebView.c
+index ebcf342..973bad8 100644
+--- a/src/api-impl-jni/widgets/android_webkit_WebView.c
++++ b/src/api-impl-jni/widgets/android_webkit_WebView.c
+@@ -1,5 +1,6 @@
+ #include <gio/gunixinputstream.h>
+ #include <gtk/gtk.h>
++#include <jsc/jsc.h>
+ #include <webkit/webkit.h>
+ 
+ #include <androidfw/androidfw_c_api.h>
+@@ -24,6 +25,10 @@ static void asset_uri_scheme_request_cb(WebKitURISchemeRequest *request, gpointe
+ 	jobject asset_manager_obj = (*env)->CallObjectMethod(env, wrapper->jobj, handle_cache.webview.internalGetAssetManager);
+ 	struct AssetManager *asset_manager = _PTR(_GET_LONG_FIELD(asset_manager_obj, "mObject"));
+ 	struct Asset *asset = AssetManager_openNonAsset(asset_manager, path, ACCESS_STREAMING);
++	if (asset == NULL) {
++		webkit_uri_scheme_request_finish_error(request, g_error_new(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "asset not found: %s", path));
++		return;
++	}
+ 	GInputStream *stream = asset_input_stream_new(asset);
+ 	webkit_uri_scheme_request_finish(request, stream, Asset_getLength(asset), NULL);
+ 	g_object_unref(stream);
+@@ -55,6 +60,185 @@ static gboolean decide_policy(WebKitWebView *web_view, WebKitPolicyDecision *dec
+ 	return FALSE;
+ }
+ 
++typedef struct {
++	WebKitWebView *webview;
++	gchar *name;
++} AtlJavascriptInterface;
++
++static void atl_javascript_interface_free(gpointer data, GClosure *closure)
++{
++	AtlJavascriptInterface *interface = data;
++	g_free(interface->name);
++	g_free(interface);
++}
++
++static void atl_javascript_message_received(WebKitUserContentManager *manager, JSCValue *value, gpointer user_data)
++{
++	AtlJavascriptInterface *interface = user_data;
++	WrapperWidget *wrapper = WRAPPER_WIDGET(gtk_widget_get_parent(GTK_WIDGET(interface->webview)));
++	if (wrapper == NULL || !jsc_value_is_array(value))
++		return;
++
++	JSCValue *length_value = jsc_value_object_get_property(value, "length");
++	guint argc = length_value ? (guint) jsc_value_to_int32(length_value) : 0;
++	if (length_value)
++		g_object_unref(length_value);
++	if (argc < 1)
++		return;
++
++	JNIEnv *env = get_jni_env();
++	if (env == NULL)
++		return;
++	if ((*env)->PushLocalFrame(env, 16) != 0)
++		return;
++
++	JSCValue *method_value = jsc_value_object_get_property_at_index(value, 0);
++	gchar *method = method_value ? jsc_value_to_string(method_value) : NULL;
++	if (method_value)
++		g_object_unref(method_value);
++
++	jclass string_class = (*env)->FindClass(env, "java/lang/String");
++	if (string_class == NULL || method == NULL) {
++		if (method)
++			g_free(method);
++		(*env)->PopLocalFrame(env, NULL);
++		return;
++	}
++
++	jobjectArray arguments = (*env)->NewObjectArray(env, argc - 1, string_class, NULL);
++	for (guint i = 1; i < argc; i++) {
++		JSCValue *argument = jsc_value_object_get_property_at_index(value, i);
++		if (argument == NULL)
++			continue;
++		if (!jsc_value_is_null(argument) && !jsc_value_is_undefined(argument)) {
++			gchar *text = jsc_value_to_string(argument);
++			jstring java_text = (*env)->NewStringUTF(env, text);
++			(*env)->SetObjectArrayElement(env, arguments, i - 1, java_text);
++			(*env)->DeleteLocalRef(env, java_text);
++			g_free(text);
++		}
++		g_object_unref(argument);
++	}
++
++	jclass webview_class = (*env)->GetObjectClass(env, wrapper->jobj);
++	jmethodID dispatch = (*env)->GetMethodID(env, webview_class, "dispatchJavascriptInterface",
++			"(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)V");
++	if (dispatch != NULL) {
++		jstring interface_name = (*env)->NewStringUTF(env, interface->name);
++		jstring method_name = (*env)->NewStringUTF(env, method);
++		(*env)->CallVoidMethod(env, wrapper->jobj, dispatch, interface_name, method_name, arguments);
++		if ((*env)->ExceptionCheck(env)) {
++			(*env)->ExceptionDescribe(env);
++			(*env)->ExceptionClear(env);
++		}
++		(*env)->DeleteLocalRef(env, interface_name);
++		(*env)->DeleteLocalRef(env, method_name);
++	}
++
++	g_free(method);
++	(*env)->PopLocalFrame(env, NULL);
++}
++
++static gchar *atl_javascript_string_literal(const gchar *text)
++{
++	GString *quoted = g_string_new("\"");
++	for (const gchar *p = text; *p; p++) {
++		switch (*p) {
++		case '\\':
++			g_string_append(quoted, "\\\\");
++			break;
++		case '"':
++			g_string_append(quoted, "\\\"");
++			break;
++		case '\n':
++			g_string_append(quoted, "\\n");
++			break;
++		case '\r':
++			g_string_append(quoted, "\\r");
++			break;
++		default:
++			g_string_append_c(quoted, *p);
++		}
++	}
++	g_string_append_c(quoted, '"');
++	return g_string_free(quoted, FALSE);
++}
++
++static void atl_register_javascript_interface(WebKitWebView *webview, const gchar *name)
++{
++	WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(webview);
++	if (manager == NULL)
++		return;
++
++	gchar *key = g_strdup_printf("atl-javascript-interface-%s", name);
++	if (g_object_get_data(G_OBJECT(webview), key) != NULL) {
++		g_free(key);
++		return;
++	}
++	g_object_set_data(G_OBJECT(webview), key, GINT_TO_POINTER(1));
++	g_free(key);
++
++	AtlJavascriptInterface *interface = g_new0(AtlJavascriptInterface, 1);
++	interface->webview = webview;
++	interface->name = g_strdup(name);
++	gchar *signal = g_strdup_printf("script-message-received::%s", name);
++	g_signal_connect_data(G_OBJECT(manager), signal, G_CALLBACK(atl_javascript_message_received),
++			interface, atl_javascript_interface_free, 0);
++	g_free(signal);
++	webkit_user_content_manager_register_script_message_handler(manager, name, NULL);
++
++	gchar *quoted_name = atl_javascript_string_literal(name);
++	gchar *script = g_strdup_printf(
++			"(function(){"
++			"if(!window.__atl_javascript_interface){"
++			"window.__atl_javascript_interface=function(name){"
++			"var handler=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers[name];"
++			"if(!handler)return;"
++			"window[name]=new Proxy({},{has:function(target,property){return true;},get:function(target,property){"
++			"if(property==='toString')return function(){return '[object '+name+']';};"
++			"return function(){"
++			"var arguments_array=Array.prototype.slice.call(arguments);"
++			"return handler.postMessage([String(property)].concat(arguments_array));"
++			"};"
++			"}});"
++			"};"
++			"}"
++			"window.__atl_javascript_interface(%s);"
++			"})();", quoted_name);
++	WebKitUserScript *user_script = webkit_user_script_new(script,
++			WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
++			WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
++			NULL, NULL);
++	webkit_user_content_manager_add_script(manager, user_script);
++	webkit_user_script_unref(user_script);
++	/* The handler may be added after a page has already started. */
++	webkit_web_view_evaluate_javascript(webview, script, -1, NULL, NULL, NULL, NULL, NULL);
++	g_free(script);
++	g_free(quoted_name);
++}
++
++JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1addJavascriptInterface(JNIEnv *env, jobject this, jlong widget_ptr, jstring name)
++{
++	if (!getenv("ATL_UGLY_ENABLE_WEBVIEW") || widget_ptr == 0 || name == NULL)
++		return;
++	const gchar *interface_name = (*env)->GetStringUTFChars(env, name, NULL);
++	if (interface_name != NULL) {
++		atl_register_javascript_interface(_PTR(widget_ptr), interface_name);
++		(*env)->ReleaseStringUTFChars(env, name, interface_name);
++	}
++}
++
++JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1evaluateJavascript(JNIEnv *env, jobject this, jlong widget_ptr, jstring script)
++{
++	if (!getenv("ATL_UGLY_ENABLE_WEBVIEW") || widget_ptr == 0 || script == NULL)
++		return;
++	const gchar *javascript = (*env)->GetStringUTFChars(env, script, NULL);
++	if (javascript != NULL) {
++		webkit_web_view_evaluate_javascript(_PTR(widget_ptr), javascript, -1, NULL, NULL, NULL, NULL, NULL);
++		(*env)->ReleaseStringUTFChars(env, script, javascript);
++	}
++}
++
+ JNIEXPORT jlong JNICALL Java_android_webkit_WebView_native_1constructor(JNIEnv *env, jobject this, jobject context, jobject attrs)
+ {
+ 	/*
+@@ -67,10 +251,18 @@ JNIEXPORT jlong JNICALL Java_android_webkit_WebView_native_1constructor(JNIEnv *
+ 
+ 	GtkWidget *wrapper = g_object_ref(wrapper_widget_new());
+ 	GtkWidget *webview = webkit_web_view_new();
++	WebKitSettings *settings = webkit_web_view_get_settings(WEBKIT_WEB_VIEW(webview));
++	webkit_settings_set_enable_javascript(settings, TRUE);
++	webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
+ 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), webview);
++	gtk_widget_set_visible(webview, TRUE);
+ 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);
+ 	wrapper_widget_register_invalidation_listener(WRAPPER_WIDGET(wrapper));
+-	webkit_web_context_register_uri_scheme(webkit_web_view_get_context(WEBKIT_WEB_VIEW(webview)), "android-asset", asset_uri_scheme_request_cb, NULL, NULL);
++	WebKitWebContext *web_context = webkit_web_view_get_context(WEBKIT_WEB_VIEW(webview));
++	if (g_object_get_data(G_OBJECT(web_context), "atl-android-asset-scheme") == NULL) {
++		webkit_web_context_register_uri_scheme(web_context, "android-asset", asset_uri_scheme_request_cb, NULL, NULL);
++		g_object_set_data(G_OBJECT(web_context), "atl-android-asset-scheme", GINT_TO_POINTER(1));
++	}
+ 	g_signal_connect(G_OBJECT(webview), "load-changed", G_CALLBACK(web_view_load_changed), NULL);
+ 	g_signal_connect(webview, "decide-policy", G_CALLBACK(decide_policy), wrapper);
+ 	return _INTPTR(webview);
+@@ -82,7 +274,9 @@ JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1loadUrl(JNIEnv *env,
+ 		return;
+ 
+ 	WebKitWebView *webview = _PTR(widget_ptr);
+-	webkit_web_view_load_uri(webview, _CSTRING(url));
++	const gchar *uri = _CSTRING(url);
++	webkit_web_view_load_uri(webview, uri);
++	(*env)->ReleaseStringUTFChars(env, url, uri);
+ }
+ 
+ JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1loadDataWithBaseURL(JNIEnv *env, jobject this, jlong widget_ptr, jstring base_url, jstring data_jstr, jstring mime_type, jstring encoding)
+diff --git a/src/api-impl/android/webkit/WebView.java b/src/api-impl/android/webkit/WebView.java
+index b448bd2..0befda4 100644
+--- a/src/api-impl/android/webkit/WebView.java
++++ b/src/api-impl/android/webkit/WebView.java
+@@ -9,6 +9,7 @@ import android.view.ViewGroup;
+ public class WebView extends ViewGroup {
+ 
+ 	private WebViewClient webViewClient;
++	private final java.util.HashMap<String, Object> javascriptInterfaces = new java.util.HashMap<>();
+ 
+ 	public WebView(Context context) {
+ 		this(context, null);
+@@ -55,7 +56,12 @@ public class WebView extends ViewGroup {
+ 	public void setInitialScale(int scaleInPercent) {}
+ 
+ 	public void addJavascriptInterface(Object object, String name) {
+-		// HACK: directly call onRenderingDone for OctoDroid, as the javascript interface is not implemented yet
++		if (object == null || name == null)
++			return;
++		javascriptInterfaces.put(name, object);
++		native_addJavascriptInterface(widget, name);
++		// HACK: directly call onRenderingDone for OctoDroid, which expects it
++		// before the page finishes loading.
+ 		if (object.getClass().getName().startsWith("com.gh4a") && "NativeClient".equals(name)) {
+ 			try {
+ 				object.getClass().getMethod("onRenderingDone").invoke(object);
+@@ -65,6 +71,73 @@ public class WebView extends ViewGroup {
+ 		}
+ 	}
+ 
++	// Called from native code when JavaScript invokes window.<name>.<method>(...).
++	private void dispatchJavascriptInterface(String name, String method, String[] args) {
++		Object target = javascriptInterfaces.get(name);
++		if (target == null)
++			return;
++		try {
++			for (java.lang.reflect.Method candidate : target.getClass().getMethods()) {
++				if (!candidate.getName().equals(method) || candidate.getParameterCount() != args.length)
++					continue;
++				Class<?>[] types = candidate.getParameterTypes();
++				Object[] values = new Object[args.length];
++				for (int i = 0; i < args.length; i++)
++					values[i] = coerceJavascriptArgument(args[i], types[i]);
++				candidate.setAccessible(true);
++				candidate.invoke(target, values);
++				return;
++			}
++			System.err.println("WebView: no JavaScript interface method " + name + "." + method + "/" + args.length);
++		} catch (Throwable t) {
++			t.printStackTrace();
++		}
++	}
++
++	private static Object coerceJavascriptArgument(String value, Class<?> type) {
++		if (value == null)
++			return type.isPrimitive() ? defaultValue(type) : null;
++		if (type == String.class || type == Object.class)
++			return value;
++		if (type == int.class || type == Integer.class)
++			return Integer.parseInt(value);
++		if (type == long.class || type == Long.class)
++			return Long.parseLong(value);
++		if (type == short.class || type == Short.class)
++			return Short.parseShort(value);
++		if (type == byte.class || type == Byte.class)
++			return Byte.parseByte(value);
++		if (type == float.class || type == Float.class)
++			return Float.parseFloat(value);
++		if (type == double.class || type == Double.class)
++			return Double.parseDouble(value);
++		if (type == boolean.class || type == Boolean.class)
++			return Boolean.parseBoolean(value);
++		if (type == char.class || type == Character.class)
++			return value.isEmpty() ? '\0' : value.charAt(0);
++		return value;
++	}
++
++	private static Object defaultValue(Class<?> type) {
++		if (type == boolean.class)
++			return false;
++		if (type == char.class)
++			return '\0';
++		if (type == byte.class)
++			return (byte) 0;
++		if (type == short.class)
++			return (short) 0;
++		if (type == int.class)
++			return 0;
++		if (type == long.class)
++			return 0L;
++		if (type == float.class)
++			return 0f;
++		if (type == double.class)
++			return 0d;
++		return null;
++	}
++
+ 	public void setWebChromeClient(WebChromeClient dummy) {}
+ 
+ 	public void removeAllViews() {}
+@@ -80,12 +153,14 @@ public class WebView extends ViewGroup {
+ 		}
+ 		// webkit doesn't allow overwriting the file:// uri scheme. So we replace it with the android-asset:// scheme
+ 		data = data.replace("file:///android_asset/", "android-asset:///assets/");
++		if (baseUrl != null)
++			baseUrl = baseUrl.replace("file:///android_asset/", "android-asset:///assets/");
+ 		native_loadDataWithBaseURL(widget, baseUrl, data, mimeType, encoding);
+ 	}
+ 
+ 	public void loadUrl(String url) {
+ 		if (url.startsWith("javascript:")) {
+-			System.out.println("loadUrl: " + url + " - not implemented yet");
++			evaluateJavascript(url.substring("javascript:".length()), null);
+ 			return;
+ 		}
+ 		// webkit doesn't allow overwriting the file:// uri scheme. So we replace it with the android-asset:// scheme
+@@ -114,7 +189,10 @@ public class WebView extends ViewGroup {
+ 		loadDataWithBaseURL("about:blank", data, mimeType, encoding, "about:blank");
+ 	}
+ 
+-	public void evaluateJavascript(String script, ValueCallback resultCallback) {}
++	public void evaluateJavascript(String script, ValueCallback resultCallback) {
++		if (script != null)
++			native_evaluateJavascript(widget, script);
++	}
+ 
+ 	public static void setWebContentsDebuggingEnabled(boolean enabled) {}
+ 
+@@ -139,4 +217,6 @@ public class WebView extends ViewGroup {
+ 	protected native long native_constructor(Context context, AttributeSet attrs);
+ 	private native void native_loadDataWithBaseURL(long widget, String baseUrl, String data, String mimeType, String encoding);
+ 	private native void native_loadUrl(long widget, String url);
++	private native void native_addJavascriptInterface(long widget, String name);
++	private native void native_evaluateJavascript(long widget, String script);
+ }

@@ -6,9 +6,10 @@ virtual machine, no emulator.
 > **Status: M1 functional.** `apkrunner inspect` is complete and `apkrunner run`
 > launches real APKs through ATL (ART + GTK4, no container). Verified with
 > `demo_app`, `compose_demo_app`, `AdaptiveIconDemo` and `gles3jni`. JW Library
-> (`org.jw.jwlibrary.mobile`) also starts and survives its native initialization,
-> but its WebView-based UI is blocked on ATL's missing JavaScript bridge. See
-> [docs/ROADMAP.md](docs/ROADMAP.md).
+> (`org.jw.jwlibrary.mobile`) now gets past its splash and renders its Home
+> screen; WebView assets, `addJavascriptInterface` and `evaluateJavascript` are
+> implemented in the ATL patches. Full navigation and the JS bridge round-trip
+> still need end-to-end verification. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Why
 

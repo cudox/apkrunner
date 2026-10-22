@@ -1,0 +1,110 @@
+diff --git a/src/api-impl-jni/graphics/android_graphics_Path.c b/src/api-impl-jni/graphics/android_graphics_Path.c
+index 791cab1..8e8e897 100644
+--- a/src/api-impl-jni/graphics/android_graphics_Path.c
++++ b/src/api-impl-jni/graphics/android_graphics_Path.c
+@@ -1,4 +1,5 @@
+ #include <gsk/gsk.h>
++#include <math.h>
+ 
+ #include "../defines.h"
+ 
+@@ -53,42 +54,70 @@ JNIEXPORT void JNICALL Java_android_graphics_Path_native_1line_1to(JNIEnv *env,
+ 	gsk_path_builder_line_to(_PTR(builder_ptr), x, y);
+ }
+ 
+-/* translated to gsk_path_builder_svg_arc_to, maybe there are more performant ways to implement this? */
++/*
++ * Convert an Android/Skia style elliptical arc (center, radii, start angle and
++ * sweep angle) into cubic Bezier segments. We deliberately don't use
++ * gsk_path_builder_svg_arc_to() here: it has to infer the center from the
++ * endpoints, cannot represent a full circle (identical endpoints), and some
++ * GSK versions spin forever on degenerate input. Since arcTo() already gives
++ * us the center parameterization, emitting the Bezier segments directly is
++ * both simpler and safer.
++ */
++static void path_arc_to_bezier(GskPathBuilder *builder, double cx, double cy, double rx, double ry,
++                               double start_angle, double sweep_angle, gboolean force_move_to)
++{
++	const graphene_point_t start = GRAPHENE_POINT_INIT(cx + rx * cos(start_angle),
++	                                                   cy + ry * sin(start_angle));
++
++	if (force_move_to) {
++		gsk_path_builder_move_to(builder, start.x, start.y);
++	} else {
++		const graphene_point_t *current = gsk_path_builder_get_current_point(builder);
++		if (current == NULL || !graphene_point_equal(current, &start))
++			gsk_path_builder_line_to(builder, start.x, start.y);
++	}
++
++	if (sweep_angle == 0.0)
++		return;
++
++	/* An arc of more than a full turn doesn't add useful geometry. */
++	if (fabs(sweep_angle) > 2.0 * G_PI)
++		sweep_angle = sweep_angle > 0.0 ? 2.0 * G_PI : -2.0 * G_PI;
++
++	const int segments = MAX(1, (int)ceil(fabs(sweep_angle) / (G_PI_2)));
++	const double delta = sweep_angle / segments;
++	const double k = (4.0 / 3.0) * tan(delta / 4.0);
++
++	double t = start_angle;
++	graphene_point_t p0 = start;
++	for (int i = 0; i < segments; i++) {
++		const double t1 = t + delta;
++		const graphene_point_t p3 = GRAPHENE_POINT_INIT(cx + rx * cos(t1), cy + ry * sin(t1));
++		const graphene_point_t c1 = GRAPHENE_POINT_INIT(p0.x - k * rx * sin(t), p0.y + k * ry * cos(t));
++		const graphene_point_t c2 = GRAPHENE_POINT_INIT(p3.x + k * rx * sin(t1), p3.y - k * ry * cos(t1));
++		gsk_path_builder_cubic_to(builder, c1.x, c1.y, c2.x, c2.y, p3.x, p3.y);
++		t = t1;
++		p0 = p3;
++	}
++}
++
+ void Java_android_graphics_Path_native_1arc_1to(JNIEnv *env, jclass this, jlong builder_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom,
+                                                 jfloat start_angle_deg, jfloat sweep_angle_deg, jboolean force_move_to)
+ {
+-	GskPathBuilder *builder = _PTR(builder_ptr);
++	/* Skia rejects non-finite values and empty ovals without touching the path. */
++	if (!isfinite(left) || !isfinite(top) || !isfinite(right) || !isfinite(bottom) ||
++	    !isfinite(start_angle_deg) || !isfinite(sweep_angle_deg))
++		return;
+ 
+-	/* compute ellipse center and radii */
+-	const graphene_point_t center = GRAPHENE_POINT_INIT((left + right) / 2.0,
+-	                                                    (top + bottom) / 2.0);
+ 	const double rx = fabs(right - left) / 2.0;
+ 	const double ry = fabs(bottom - top) / 2.0;
++	if (rx == 0.0 || ry == 0.0)
++		return;
+ 
+-	/* compute points on the ellipse from angles */
+-	const double start_angle = DEG2RAD(start_angle_deg);
+-	const double end_angle = DEG2RAD(start_angle_deg + sweep_angle_deg);
+-
+-	graphene_point_t p1;
+-	graphene_point_t p2;
+-	graphene_point_init(&p1,
+-	                    center.x + rx * cos(start_angle),
+-	                    center.y + ry * sin(start_angle));
+-	graphene_point_init(&p2,
+-	                    center.x + rx * cos(end_angle),
+-	                    center.y + ry * sin(end_angle));
+-
+-	/* handle force_move_to */
+-	if (force_move_to)
+-		gsk_path_builder_move_to(builder, p1.x, p1.y);
+-	else if (!graphene_point_equal(gsk_path_builder_get_current_point(builder), &p1))
+-		gsk_path_builder_line_to(builder, p1.x, p1.y);
+-
+-	/* compute flags */
+-	const gboolean large_arc_flag = (fabs(sweep_angle_deg) >= 180.0);
+-	const gboolean sweep_flag = (sweep_angle_deg > 0.0);
+-
+-	gsk_path_builder_svg_arc_to(builder, rx, ry, 0.0, large_arc_flag, sweep_flag, p2.x, p2.y);
++	const double cx = (left + right) / 2.0;
++	const double cy = (top + bottom) / 2.0;
++	path_arc_to_bezier(_PTR(builder_ptr), cx, cy, rx, ry,
++	                   DEG2RAD(start_angle_deg), DEG2RAD(sweep_angle_deg), force_move_to);
+ }
+ 
+ JNIEXPORT void JNICALL Java_android_graphics_Path_native_1cubic_1to(JNIEnv *env, jclass this, jlong builder_ptr, jfloat x1, jfloat y1, jfloat x2, jfloat y2, jfloat x3, jfloat y3)

@@ -107,19 +107,23 @@ Usar el motor de ATL (variante A de la arquitectura) para no reescribir ART ni l
       `gles3jni` (GLES3 + JNI) también corre.
 - [x] Prueba con APK real (JW Library 15.9.2, 2026-10-21): la app arranca,
       extrae sus 28 librerías nativas (Realm, SQLite, sodium, JNI propios),
-      ejecuta `MainActivity` y `SiloContainer`, muestra el splash y se mantiene
-      viva sin crashes. Queda bloqueada en el puente JavaScript del WebView:
-      la webapp llama a `NativeInterface.send(...)` y espera respuestas, pero
-      ATL no implementa `addJavascriptInterface`, `evaluateJavascript` ni
-      `loadUrl("javascript:...")`.
+      ejecuta `MainActivity`, `SiloContainer` y `TermsOfUseActivity`, carga los
+      bundles de la webapp desde `assets/webapp/` y muestra la pantalla Home.
+      El splash vectorial bloqueaba el hilo principal dentro de
+      `Path.native_arc_to`; se corrigió en ATL (`0005-path-arc-to.patch`). El
+      puente JavaScript está implementado (`0004-webview-javascript-bridge.patch`)
+      y expone `window.NativeInterface`; falta validar el ciclo completo de
+      navegación y las respuestas Java→JS con interacción real.
 - [x] Parches de compatibilidad de ATL en `patches/atl/`:
-      `HttpResponseCache`, IV de 12 bytes en AES/GCM y métodos ocultos de
-      `WebSettings`. El build también re-dexea `core-oj`/`core-libart` con D8
-      porque `dx` deja las lambdas de libcore como `invokedynamic` y el
-      `LambdaMetafactory` de ATL es un stub que devuelve `null`.
-- [ ] Implementar el puente JavaScript del WebView en ATL (o en un fork
-      propio): exponer objetos Java a JS y ejecutar JS desde Java. Es lo que
-      falta para que JW Library salga del splash.
+      `HttpResponseCache`, IV de 12 bytes en AES/GCM, métodos ocultos de
+      `WebSettings`, puente JavaScript del WebView y arcos de `Path` en Bézier.
+      El build también re-dexea `core-oj`/`core-libart` con D8 porque `dx` deja
+      las lambdas de libcore como `invokedynamic` y el `LambdaMetafactory` de
+      ATL es un stub que devuelve `null`.
+- [x] Implementar el puente JavaScript del WebView en ATL: exponer objetos
+      Java a JS (`addJavascriptInterface`), ejecutar JS desde Java
+      (`evaluateJavascript` y `javascript:`) y despachar los mensajes de vuelta
+      al objeto Java. JW Library ya sale del splash y pinta su Home.
 - [ ] Confirmar input manual (click/teclado) en las apps de prueba.
 - [ ] `sample_sdl2_app` hace SIGSEGV dentro de `libandroidfw`
       (`DiagMessage::Build`), pendiente de reportar/actualizar ATL.
