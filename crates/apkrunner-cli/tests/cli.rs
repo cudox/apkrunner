@@ -99,7 +99,7 @@ fn run_launches_the_manifest_activity_and_propagates_the_exit_code() {
     fs::write(&apk, apkrunner_apk::fixtures::minimal_apk()).unwrap();
 
     let fake = dir.join("fake-atl");
-    fs::write(&fake, "#!/bin/sh\nexit 7\n").unwrap();
+    fs::write(&fake, "#!/bin/sh\necho 'fake runtime log' >&2\nexit 7\n").unwrap();
     let mut perms = fs::metadata(&fake).unwrap().permissions();
     perms.set_mode(0o755);
     fs::set_permissions(&fake, perms).unwrap();
@@ -120,7 +120,8 @@ fn run_launches_the_manifest_activity_and_propagates_the_exit_code() {
         "{stderr}"
     );
     assert!(dir.join("runtime/atl/com.example.hello").is_dir());
-    assert!(dir.join("state/com.example.hello.log").is_file());
+    let log = fs::read_to_string(dir.join("state/com.example.hello.log")).unwrap();
+    assert!(log.contains("fake runtime log"), "{log}");
 
     fs::remove_dir_all(&dir).ok();
 }

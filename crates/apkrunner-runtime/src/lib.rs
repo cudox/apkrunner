@@ -37,12 +37,19 @@ pub fn run(
 
     let mut child = command.spawn()?;
 
-    if let Some(stderr) = child.stderr.take() {
+    let pump_thread = child.stderr.take().map(|stderr| {
         let log = Arc::clone(&log);
-        std::thread::spawn(move || pump(stderr, log));
-    }
+        std::thread::spawn(move || pump(stderr, log))
+    });
 
     let status = child.wait()?;
+
+    // The child is gone, so the pipe is closed: drain it before returning or
+    // the last lines never reach the log file.
+    if let Some(thread) = pump_thread {
+        let _ = thread.join();
+    }
+
     Ok(status.code().unwrap_or(1))
 }
 
