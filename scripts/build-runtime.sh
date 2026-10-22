@@ -12,6 +12,7 @@
 
 set -euo pipefail
 
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 PREFIX=${APKRUNNER_RUNTIME_PREFIX:-$HOME/.local/apkrunner-runtime}
 BUILD_DIR=${APKRUNNER_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/apkrunner-build}
 JOBS=${JOBS:-$(( $(nproc) > 8 ? 8 : $(nproc) ))}
@@ -182,6 +183,18 @@ if has atl; then
     [ -d atl-src ] || git clone --depth 1 \
         https://gitlab.com/android_translation_layer/android_translation_layer.git atl-src
     cd atl-src
+
+    # apkrunner keeps small patches for API classes ATL does not implement yet.
+    for patch in "$REPO_ROOT"/patches/atl/*.patch; do
+        [ -e "$patch" ] || continue
+        if git apply --reverse --check "$patch" 2>/dev/null; then
+            log "already applied: $(basename "$patch")"
+        else
+            git apply "$patch" || die "cannot apply $(basename "$patch")"
+            log "applied: $(basename "$patch")"
+        fi
+    done
+
     rm -rf builddir
     # ATL already passes -source 1.8 -target 1.8 -bootclasspath, which produces
     # the Java 8 bytecode dx needs. Do NOT set JDK_JAVAC_OPTIONS=--release 8:

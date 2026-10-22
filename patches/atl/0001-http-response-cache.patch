@@ -1,0 +1,102 @@
+diff --git a/src/api-impl/android/net/http/HttpResponseCache.java b/src/api-impl/android/net/http/HttpResponseCache.java
+new file mode 100644
+index 0000000..8b57dc6
+--- /dev/null
++++ b/src/api-impl/android/net/http/HttpResponseCache.java
+@@ -0,0 +1,84 @@
++package android.net.http;
++
++import java.io.Closeable;
++import java.io.File;
++import java.io.IOException;
++import java.net.CacheRequest;
++import java.net.CacheResponse;
++import java.net.ResponseCache;
++import java.net.URI;
++import java.net.URLConnection;
++import java.util.List;
++import java.util.Map;
++
++/**
++ * Minimal implementation of Android's HTTP response cache.
++ *
++ * ATL did not provide this class and apps such as JW Library fail with
++ * NoClassDefFoundError before their first activity can be created. The cache
++ * is a no-op for now: it satisfies the API contract without storing entries.
++ */
++public final class HttpResponseCache extends ResponseCache implements Closeable {
++    private static HttpResponseCache instance;
++
++    private final long maxSize;
++    private long size;
++
++    private HttpResponseCache(File directory, long maxSize) {
++        this.maxSize = maxSize;
++    }
++
++    public static HttpResponseCache install(File directory, long maxSize) throws IOException {
++        if (instance == null) {
++            instance = new HttpResponseCache(directory, maxSize);
++        }
++        return instance;
++    }
++
++    public static HttpResponseCache get() {
++        return instance;
++    }
++
++    @Override
++    public CacheResponse get(URI uri, String requestMethod,
++                             Map<String, List<String>> requestHeaders) {
++        return null;
++    }
++
++    @Override
++    public CacheRequest put(URI uri, URLConnection conn) {
++        return null;
++    }
++
++    public long size() {
++        return size;
++    }
++
++    public long maxSize() {
++        return maxSize;
++    }
++
++    public void flush() {
++    }
++
++    @Override
++    public void close() throws IOException {
++        instance = null;
++    }
++
++    public void delete() throws IOException {
++        size = 0;
++    }
++
++    public int getHitCount() {
++        return 0;
++    }
++
++    public int getNetworkCount() {
++        return 0;
++    }
++
++    public int getRequestCount() {
++        return 0;
++    }
++}
+diff --git a/src/api-impl/meson.build b/src/api-impl/meson.build
+index 40e6c16..cd53b99 100644
+--- a/src/api-impl/meson.build
++++ b/src/api-impl/meson.build
+@@ -386,6 +386,7 @@ srcs = [
+ 	'android/net/Uri.java',
+ 	'android/net/UriCodec.java',
+ 	'android/net/UrlQuerySanitizer.java',
++	'android/net/http/HttpResponseCache.java',
+ 	'android/net/http/X509TrustManagerExtensions.java',
+ 	'android/net/nsd/NsdManager.java',
+ 	'android/net/ssl/SSLSockets.java',
